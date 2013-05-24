@@ -20,7 +20,6 @@ def dnssd_search(stype='_http._tcp'):
     for key in dnssd.keys():
         inst_type = key[1]
         inst_fullname = dns.name.from_text(key[0] + '.' + key[1]).to_text(omit_final_dot=True)
-        #inst_hostname = dns.resolver.query(dns.reversename.from_address(dnssd[key]['address']), 'PTR')[0].to_text()
         try:
             inst_hostname_rev_rr = dns.resolver.query(dns.reversename.from_address(dnssd[key]['address']), 'PTR')
         except DNSException, e:
@@ -28,12 +27,13 @@ def dnssd_search(stype='_http._tcp'):
         dnssd[key]['hostname_rev'] = [i.to_text(relativize=False) for i in inst_hostname_rev_rr]
         inst_port = dnssd[key]['port']
         inst_txt_rdata_rev = re.split(r'(?<=")\s+(?=")', dnssd[key]['txt'])[::-1]
+        if not len(dnssd[key]['hostname_rev']) > 0:
+            continue
+        print "%-100s %-3s %-30s" % (inst_type, 'PTR', inst_fullname)
         for h in dnssd[key]['hostname_rev']:
-            # replace hostname.local with reverse-resolved fqdn
+            # replace hostname.local with reverse-resolved fqdn in TXT rdata
             inst_txt_rdata_rev_host = [ re.sub(r'%s\.?' % dnssd[key]['hostname'], r'%s' % h.rstrip('.'), blob) for blob in inst_txt_rdata_rev ]
             inst_txt_rdata_rev_host = ' '.join(inst_txt_rdata_rev_host)
-
-            print "%-100s %-3s %-30s" % (inst_type, 'PTR', inst_fullname)
             print "%-100s %-3s %2d %2d %-5s %-50s" % (inst_fullname, 'SRV', 0, 0, inst_port, h)
             if (dnssd[key]['txt'] != ''):
                 print "%-100s %-3s %s" % (inst_fullname, 'TXT', inst_txt_rdata_rev_host)
