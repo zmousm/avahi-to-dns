@@ -8,7 +8,6 @@ import dns.name
 import dns.resolver
 import dns.reversename
 import re
-from dns.rdatatype import *
 from dns.exception import DNSException
 
 
