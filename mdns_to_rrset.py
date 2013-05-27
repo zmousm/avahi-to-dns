@@ -16,7 +16,7 @@ from dns.exception import DNSException
 def dnssd_search(stype='_http._tcp'):
     dnssd = zeroconf.search(name=None, type=stype, domain="local")
 
-    for key in dnssd.keys():
+    for key in dnssd:
         inst_type = key[1]
         # <Instance> must be a single DNS label, any dots should be escaped before concatenating
         # all portions of a Service Instance Name, according to DNS-SD (RFC6763).
