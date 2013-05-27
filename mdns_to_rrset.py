@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# coding: utf-8
+# -*- coding: utf-8 -*-
 
 #import cgi
 #import cgitb; cgitb.enable()
@@ -19,7 +19,11 @@ def dnssd_search(stype='_http._tcp'):
 
     for key in dnssd.keys():
         inst_type = key[1]
-        inst_fullname = dns.name.from_text(key[0] + '.' + key[1]).to_text(omit_final_dot=True)
+        # <Instance> must be a single DNS label, any dots should be escaped before concatenating
+        # all portions of a Service Instance Name, according to DNS-SD (RFC6763).
+        # A workaround is necessary for buggy software that does not adhere to the rules:
+        inst_name = re.sub(r'(?<!\\)\.', r'\.', key[0])
+        inst_fullname = dns.name.from_text(inst_name + '.' + inst_type).to_text(omit_final_dot=True)
         try:
             inst_hostname_rev_rr = dns.resolver.query(dns.reversename.from_address(dnssd[key]['address']), 'PTR')
         except DNSException, e:
