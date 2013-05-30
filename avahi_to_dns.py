@@ -197,7 +197,7 @@ try:
         sys.exit()
 
     if options.output_format == "dns":
-        zone = zeroconf_to_zone(target_zone=options.target_zone, zeroconf_results=results, ttl=options.ttl)
+        zone = zeroconf_to_zone(target_zone=options.target_zone, target_ns=options.zone_xfr_from, zeroconf_results=results, ttl=options.ttl)
     elif options.output_format == "json":
         zone = zeroconf_to_json(zeroconf_results=results)
 
