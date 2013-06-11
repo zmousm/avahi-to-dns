@@ -25,9 +25,12 @@ def prepare_options(cgi_mode):
 This option should be used once for each domain you want to browse.""")
     parser.add_option('-s', '--service', action="append", default=[None],
                       help="""Service name (default: all services).
-This option should be used once for each service you want to enumerate.""")
+This option should be used once for each service you want to enumerate.
+Well known subtypes (HTTP and IPP) are enumerated automatically, other
+subtypes should be specified explicitly. Specifying a subtype automatically
+enumerates the master type as well.""")
     parser.add_option('-n', '--instance-name', default=None,
-                      help="""Instance name""")
+                      help="""Instance name to search for""")
 
     if cgi_mode:
         import cgi
@@ -72,6 +75,12 @@ This option should be used once for each service you want to enumerate.""")
 def zeroconf_search_multi(name=None, types=[None], domains=['local']):
     import zeroconf
 
+    default_subtypes = { '_ipp._tcp'  : [ '_universal._sub._ipp._tcp' ],
+                         '_http._tcp' : [  '_printer._sub._http._tcp' ]  }
+
+    types = set(types)
+    domains = set(domains)
+
     # name = 'name'
     # types = 'types'
     # domains = 'domains'
@@ -90,21 +99,62 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local']):
     # types = list(set(kwargs['types'])) if 'types' in kwargs else [None]
     # domains = list(set(kwargs['domains'])) if 'domains' in kwargs else ['local']
 
-    filter_types = []
-    results = {}
+
+    # special handling for subtypes: they are not queried through _services
+    # enumeration and we can not tell them apart in responses from the
+    # corresponding master service)
+    subtypes_all = {type for type in types
+                if isinstance(type, basestring) and
+                len(re.split(r'(?<!\\)\.', type)) > 3 and
+                re.split(r'(?<!\\)\.', type)[-3] == '_sub'}
+    types -= subtypes_all
+    # browse for well known sub-types if the master is requested
+    for k in default_subtypes:
+        if k in types:
+            subtypes_all.update(default_subtypes[k])
+
+    filter_types = set()
+    stype = None
     if len(types) > 1:
         filter_types = types
-        stype = None
-    else:
-        stype = types[0]
+    elif types:
+        stype = types.pop()
+
+    results_all = {}
     for domain in domains:
-        results.update(zeroconf.search(name=name, type=stype, domain=domain))
+        results = zeroconf.search(name=name, type=stype, domain=domain)
+
+        subtypes = subtypes_all
+        # add default subtypes to subtypes to be browsed if the master is found in results
+        for subt_key in default_subtypes:
+            if subt_key in [res_key[1] for res_key in results.keys()]:
+                subtypes.update(default_subtypes[subt_key])
+        # browse for each subtype individually
+        for subtype in subtypes:
+            for (key, val) in zeroconf.search(name=name, type=subtype, domain=domain).items():
+                # record in results for master type, add subtype
+                if key in results and \
+                        { k : results[key][k] for k in results[key] if k != 'subtypes' } == val:
+                    subtype = subtype.rstrip('._sub.' + key[1])
+                    if 'subtypes' in results[key]:
+                        results[key]['subtypes'].append(subtype)
+                    else:
+                        results[key]['subtypes'] = [subtype]
+                # no record in results for master type, add record and subtype
+                else:
+                    results.update({ key : val })
+                    results[key]['subtypes'] = [subtype]
+
+        results_all.update(results)
+
     if filter_types:
-        for key in results.keys():
+        for key in results_all.keys():
             _, svc_, _ = key
-            if not svc_ in filter_types:
-                del results[key]
-    return results #if len(results) > 0 else None
+            if not svc_ in filter_types and \
+                    not svc_ in subtypes:
+                del results_all[key]
+
+    return results_all #if len(results) > 0 else None
 
 def zeroconf_to_json(zeroconf_results = {}):
     import json
@@ -144,7 +194,10 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost', zeroconf_
 
     for key in zeroconf_results:
         inst_name, inst_type, inst_domain = key
+        inst_subtypes = zeroconf_results[key]['subtypes'] if 'subtypes' in zeroconf_results[key] \
+            else []
         type_node = zone.find_node(dns.name.from_text(inst_type, origin=zone.origin), create=True)
+        subtype_nodes = [zone.find_node(dns.name.from_text(subtype + '._sub.' + inst_type, origin=zone.origin), create=True) for subtype in inst_subtypes]
         # <Instance> must be a single DNS label, any dots should be escaped before concatenating
         # all portions of a Service Instance Name, according to DNS-SD (RFC6763).
         # A workaround is necessary for buggy software that does not adhere to the rules:
@@ -166,10 +219,15 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost', zeroconf_
 
         inst_port = zeroconf_results[key]['port']
         inst_txt_rdata_rev = re.split('(?<=")\s+(?=")', zeroconf_results[key]['txt'])[::-1]
-        if not len(zeroconf_results[key]['hostname_rev']) > 0:
+        if not zeroconf_results[key]['hostname_rev']:
             continue
+        node_ptr_rdata = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.PTR, inst_fullname.to_text())
         type_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.PTR, create=True).add(
-            dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.PTR, inst_fullname.to_text()), ttl=ttl)
+            node_ptr_rdata, ttl=ttl)
+        for subtype_node in subtype_nodes:
+            subtype_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.PTR, create=True).add(
+                node_ptr_rdata, ttl=ttl)
+
         inst_node = zone.find_node(inst_fullname, create=True)
         for h in zeroconf_results[key]['hostname_rev']:
             # replace hostname.local or whatever avahi returns with reverse-resolved fqdn
@@ -181,6 +239,10 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost', zeroconf_
                 inst_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.TXT, create=True).add(
                     dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.TXT, inst_txt_rdata_rev_fqdn), ttl=ttl)
 
+    # after iterating through all the results, delete empty nodes in zone
+    for name, node in zone.nodes.items():
+        if not node.rdatasets:
+            zone.delete_node(name)
     return zone
 
 
