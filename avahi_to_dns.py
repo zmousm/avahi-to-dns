@@ -7,7 +7,7 @@ import re
 
 def prepare_options(cgi_mode):
     from optparse import OptionParser, OptionValueError, OptionGroup
-    parser = OptionParser (usage="Usage: %prog [ -z <target-zone> -x <zone-xfr-from> -t <ttl> --output-rrset -d <domain> -s <service> -n <instance-name> ]",
+    parser = OptionParser (usage="Usage: %prog [ -z <target-zone> -x <zone-xfr-from> -t <ttl> --output-rrset -d <domain> -s <service> -n <instance-name> --instname-sed PATTERN REPL]",
                            description="DNS-SD browser (via avahi-browse) that returns a DNS zone or rrset",
                            epilog=None)
     parser.add_option('-z', '--target-zone', default='example.com',
@@ -31,6 +31,9 @@ subtypes should be specified explicitly. Specifying a subtype automatically
 enumerates the master type as well.""")
     parser.add_option('-n', '--instance-name', default=None,
                       help="""Instance name to search for""")
+    parser.add_option('--instname-sed', nargs=2, default=None,
+                      help="""The pattern and replacement string to use for
+regex replace on each instance name.""")
 
     if cgi_mode:
         import cgi
@@ -69,6 +72,9 @@ enumerates the master type as well.""")
         #     opt = parser.get_option('--%s' % opt)
         #     if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str in str(opt).split('/')]:
         #         del getattr(options, opt.dest)[0]
+        if options.instname_sed is not None:
+            options.sed_pattern, options.sed_repl = options.instname_sed
+
     #print options
     return options
 
@@ -155,6 +161,15 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local']):
             _, svc_, _ = key
             if not svc_ in filter_types and \
                     not svc_ in subtypes:
+                del results_all[key]
+
+    if options.instname_sed is not None:
+        for key in results_all.keys():
+            name_, svc_, dom_ = key
+            # newname = re.sub(r'^(.+)( @ cups)', r'AirPrint: \g<1>', name_)
+            newname = re.sub(r'%s' % options.sed_pattern, r'%s' % options.sed_repl, name_)
+            if newname != name_:
+                results_all[(newname, svc_, dom_)] = results_all[key]
                 del results_all[key]
 
     return results_all #if len(results) > 0 else None
