@@ -108,11 +108,11 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local']):
                 len(re.split(r'(?<!\\)\.', type)) > 3 and
                 re.split(r'(?<!\\)\.', type)[-3] == '_sub'}
     types -= subtypes_all
-    # browse for well known sub-types if the master is requested
+    # enumerate for well known sub-types if the master is requested
     for k in default_subtypes:
         if k in types:
             subtypes_all.update(default_subtypes[k])
-        # but also browse the master if a sub-type is requested
+        # but also enumerate the master if a sub-type is requested
         else:
             types |= {k for i in default_subtypes[k] if i in subtypes_all}
 
@@ -128,11 +128,11 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local']):
         results = zeroconf.search(name=name, type=stype, domain=domain)
 
         subtypes = subtypes_all
-        # add default subtypes to subtypes to be browsed if the master is found in results
+        # add default subtypes to subtypes to be enumerated if the master is found in results
         for subt_key in default_subtypes:
             if subt_key in [res_key[1] for res_key in results.keys()]:
                 subtypes.update(default_subtypes[subt_key])
-        # browse for each subtype individually
+        # enumerate for each subtype individually
         for subtype in subtypes:
             for (key, val) in zeroconf.search(name=name, type=subtype, domain=domain).items():
                 # record in results for master type, add subtype
