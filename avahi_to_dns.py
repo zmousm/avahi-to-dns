@@ -55,6 +55,10 @@ regex replace on each instance name.""")
         [options.extend(['--domain', dom]) for dom in form.getlist('domain')]
         [options.extend(['--service', svc]) for svc in form.getlist('service')]
         options.extend([ '--instance-name', form.getfirst('instance_name')])
+        if form.getfirst('instname_pattern') and form.getfirst('instname_repl'):
+            options.extend([ '--instname-sed',
+                             form.getfirst('instname_pattern'),
+                             form.getfirst('instname_repl') ])
         (options, args) = parser.parse_args(options)
         # get rid of defaults because action=append doesnt
         if form.getlist('domain'):
@@ -72,8 +76,8 @@ regex replace on each instance name.""")
         #     opt = parser.get_option('--%s' % opt)
         #     if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str in str(opt).split('/')]:
         #         del getattr(options, opt.dest)[0]
-        if options.instname_sed is not None:
-            options.sed_pattern, options.sed_repl = options.instname_sed
+    if options.instname_sed is not None:
+        options.sed_pattern, options.sed_repl = options.instname_sed
 
     #print options
     return options
