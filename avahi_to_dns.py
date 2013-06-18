@@ -112,6 +112,9 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local']):
     for k in default_subtypes:
         if k in types:
             subtypes_all.update(default_subtypes[k])
+        # but also browse the master if a sub-type is requested
+        else:
+            types |= {k for i in default_subtypes[k] if i in subtypes_all}
 
     filter_types = set()
     stype = None
