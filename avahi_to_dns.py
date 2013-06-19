@@ -7,8 +7,9 @@ import re
 
 def prepare_options(cgi_mode):
     from optparse import OptionParser, OptionValueError, OptionGroup
-    parser = OptionParser (usage="Usage: %prog [ -z <target-zone> -x <zone-xfr-from> -t <ttl> --output-rrset -d <domain> -s <service> -n <instance-name> --instname-sed PATTERN REPL]",
-                           description="DNS-SD browser (via avahi-browse) that returns a DNS zone or rrset",
+    parser = OptionParser (usage="""Usage: %prog [ -z <target-zone> -x <zone-xfr-from> -t <ttl> --output-rrset
+-d <domain> -s <service> -n <instance-name> --instname-sed PATTERN REPL]""",
+                           description="DNS-SD browser that converts avahi-browse output to a DNS zone/rrset",
                            epilog=None)
     parser.add_option('-z', '--target-zone', default='example.com',
                       help='Target zone')
@@ -34,6 +35,9 @@ enumerates the master type as well.""")
     parser.add_option('--instname-sed', nargs=2, default=None,
                       help="""The pattern and replacement string to use for
 regex replace on each instance name.""")
+    parser.add_option('--instname-sed-service', action="append", default=[None],
+                      help="""Regex replace on instance names should be applied only to
+instances of these services. This option should be used once for each service.""")
 
     if cgi_mode:
         import cgi
@@ -59,12 +63,15 @@ regex replace on each instance name.""")
             options.extend([ '--instname-sed',
                              form.getfirst('instname_pattern'),
                              form.getfirst('instname_repl') ])
+        [options.extend(['--instname-sed-service', svc]) for svc in form.getlist('instname_sed_service')]
         (options, args) = parser.parse_args(options)
         # get rid of defaults because action=append doesnt
         if form.getlist('domain'):
             del options.domain[0]
         if form.getlist('service'):
             del options.service[0]
+        if form.getlist('instname_sed_service'):
+            del options.instname_sed_service[0]
     else:
         (options, args) = parser.parse_args(sys.argv[1:])
         # get rid of defaults because action=append doesnt
@@ -72,17 +79,18 @@ regex replace on each instance name.""")
             del options.domain[0]
         if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str in str(parser.get_option('--service')).split('/')]:
             del options.service[0]
+        if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str in str(parser.get_option('--instname-sed-service')).split('/')]:
+            del options.instname_sed_service[0]
         # for opt in ['service', 'domain']:
         #     opt = parser.get_option('--%s' % opt)
         #     if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str in str(opt).split('/')]:
         #         del getattr(options, opt.dest)[0]
-    if options.instname_sed is not None:
-        options.sed_pattern, options.sed_repl = options.instname_sed
 
     #print options
     return options
 
-def zeroconf_search_multi(name=None, types=[None], domains=['local']):
+def zeroconf_search_multi(name=None, types=[None], domains=['local'],
+                          sed_pattern=None, sed_repl=None, sed_service=[None]):
     import zeroconf
 
     default_subtypes = { '_ipp._tcp'  : [ '_universal._sub._ipp._tcp' ],
@@ -167,11 +175,13 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local']):
                     not svc_ in subtypes:
                 del results_all[key]
 
-    if options.instname_sed is not None:
+    if sed_pattern is not None and sed_repl is not None:
         for key in results_all.keys():
             name_, svc_, dom_ = key
+            if sed_service != [None] and svc_ not in sed_service:
+                continue
             # newname = re.sub(r'^(.+)( @ cups)', r'AirPrint: \g<1>', name_)
-            newname = re.sub(r'%s' % options.sed_pattern, r'%s' % options.sed_repl, name_)
+            newname = re.sub(r'%s' % sed_pattern, r'%s' % sed_repl, name_)
             if newname != name_:
                 results_all[(newname, svc_, dom_)] = results_all[key]
                 del results_all[key]
@@ -273,9 +283,14 @@ try:
 
     options = prepare_options(cgi_mode)
 
+    sed_pattern, sed_repl = options.instname_sed if options.instname_sed is not None else (None, None)
+
     results = zeroconf_search_multi(types = options.service,
                                     domains = options.domain,
-                                    name = options.instance_name)
+                                    name = options.instance_name,
+                                    sed_pattern = sed_pattern,
+                                    sed_repl = sed_repl,
+                                    sed_service=options.instname_sed_service)
 
     if not results:
         sys.exit()
