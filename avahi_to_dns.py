@@ -38,6 +38,8 @@ regex replace on each instance name.""")
     parser.add_option('--instname-sed-service', action="append", default=[None],
                       help="""Regex replace on instance names should be applied only to
 instances of these services. This option should be used once for each service.""")
+    parser.add_option('--location-map', default='{}',
+                      help="""A dictionary mapping instance names to locations""")
 
     if cgi_mode:
         import cgi
@@ -64,6 +66,8 @@ instances of these services. This option should be used once for each service.""
                              form.getfirst('instname_pattern'),
                              form.getfirst('instname_repl') ])
         [options.extend(['--instname-sed-service', svc]) for svc in form.getlist('instname_sed_service')]
+        if form.getfirst('location_map'):
+            options.extend([ '--location-map', form.getfirst('location_map') ])
         (options, args) = parser.parse_args(options)
         # get rid of defaults because action=append doesnt
         if form.getlist('domain'):
@@ -199,7 +203,8 @@ def zeroconf_to_json(zeroconf_results = {}):
 
     return json.dumps(ndict) if len(ndict) > 0 else None
 
-def zeroconf_to_zone(target_zone='example.com', target_ns='localhost', zeroconf_results = {}, ttl=1800):
+def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
+                     zeroconf_results = {}, locmap = {}, ttl=1800):
     import dns.name
     import dns.reversename
     import dns.resolver
@@ -212,6 +217,9 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost', zeroconf_
     #from dns.rdatatype import *
     import dns.rdatatype
     import dns.rdataclass
+
+    if not isinstance(locmap, dict):
+        raise TypeError
 
     if target_zone == 'example.com':
         zone = """@ 86400 IN SOA {ns}. administrator.example.com. 1970000000 28800 7200 604800 1800
@@ -261,6 +269,17 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost', zeroconf_
                 node_ptr_rdata, ttl=ttl)
 
         inst_node = zone.find_node(inst_fullname, create=True)
+        
+        if inst_name in locmap.keys():
+            idx = False
+            for (i, txt) in enumerate(inst_txt_rdata_rev):
+                if txt.find('"note="') == 0:
+                    idx = i
+                    break
+            if idx:
+                inst_txt_rdata_rev[idx] = '"note=%s"' % locmap[inst_name]
+            else:
+                inst_txt_rdata_rev.append('"note=%s"' % locmap[inst_name])
         for h in zeroconf_results[key]['hostname_rev']:
             # replace hostname.local or whatever avahi returns with reverse-resolved fqdn
             inst_txt_rdata_rev_fqdn = [ re.sub(r'%s\.?' % zeroconf_results[key]['hostname'], r'%s' % h.rstrip('.'), kvp) for kvp in inst_txt_rdata_rev ]
@@ -296,7 +315,8 @@ try:
         sys.exit()
 
     if options.output_format == "dns":
-        zone = zeroconf_to_zone(target_zone=options.target_zone, target_ns=options.zone_xfr_from, zeroconf_results=results, ttl=options.ttl)
+        zone = zeroconf_to_zone(target_zone=options.target_zone, target_ns=options.zone_xfr_from, zeroconf_results=results,
+                                locmap=eval(options.location_map), ttl=options.ttl)
     elif options.output_format == "json":
         zone = zeroconf_to_json(zeroconf_results=results)
 
