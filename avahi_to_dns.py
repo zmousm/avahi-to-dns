@@ -236,15 +236,19 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
         inst_name, inst_type, inst_domain = key
         inst_subtypes = zeroconf_results[key]['subtypes'] if 'subtypes' in zeroconf_results[key] \
             else []
+
+        # create service type and subtype nodes (empty nodes deleted at the end)
         type_node = zone.find_node(dns.name.from_text(inst_type, origin=zone.origin), create=True)
         subtype_nodes = [zone.find_node(dns.name.from_text(subtype + '._sub.' + inst_type, origin=zone.origin), create=True) for subtype in inst_subtypes]
+
         # <Instance> must be a single DNS label, any dots should be escaped before concatenating
         # all portions of a Service Instance Name, according to DNS-SD (RFC6763).
         # A workaround is necessary for buggy software that does not adhere to the rules:
         inst_name = re.sub(r'(?<!\\)\.', r'\.', inst_name)
-        inst_fullname = dns.name.from_text("%s.%s" % (inst_name, inst_type), origin=zone.origin)
-        inst_addr = zeroconf_results[key]['address']
 
+        inst_fullname = dns.name.from_text("%s.%s" % (inst_name, inst_type), origin=zone.origin)
+
+        inst_addr = zeroconf_results[key]['address']
         if inst_addr not in reverse_resolved:
             try:
                 reverse_resolved[inst_addr] = dns.resolver.query(
@@ -257,19 +261,26 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
         inst_hostname_rev_rr = reverse_resolved[inst_addr] if reverse_resolved[inst_addr] is not None else []
         zeroconf_results[key]['hostname_rev'] = [i.to_text(relativize=False) for i in inst_hostname_rev_rr]
 
-        inst_port = zeroconf_results[key]['port']
-        inst_txt_rdata_rev = re.split('(?<=")\s+(?=")', zeroconf_results[key]['txt'])[::-1]
         if not zeroconf_results[key]['hostname_rev']:
             continue
+
         node_ptr_rdata = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.PTR, inst_fullname.to_text())
+
+        # fill service type and subtype nodes with PTR rdata
         type_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.PTR, create=True).add(
             node_ptr_rdata, ttl=ttl)
         for subtype_node in subtype_nodes:
             subtype_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.PTR, create=True).add(
                 node_ptr_rdata, ttl=ttl)
 
+        # create instance node
         inst_node = zone.find_node(inst_fullname, create=True)
         
+        inst_port = zeroconf_results[key]['port']
+
+        inst_txt_rdata_rev = re.split('(?<=")\s+(?=")', zeroconf_results[key]['txt'])[::-1]
+
+        # note txt field mangling
         if inst_name in locmap.keys():
             idx = False
             for (i, txt) in enumerate(inst_txt_rdata_rev):
@@ -280,17 +291,22 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
                 inst_txt_rdata_rev[idx] = '"note=%s"' % locmap[inst_name]
             else:
                 inst_txt_rdata_rev.append('"note=%s"' % locmap[inst_name])
+
         for h in zeroconf_results[key]['hostname_rev']:
             # replace hostname.local or whatever avahi returns with reverse-resolved fqdn
             inst_txt_rdata_rev_fqdn = [ re.sub(r'%s\.?' % zeroconf_results[key]['hostname'], r'%s' % h.rstrip('.'), kvp) for kvp in inst_txt_rdata_rev ]
             inst_txt_rdata_rev_fqdn = ' '.join(inst_txt_rdata_rev_fqdn)
+
+            # fill instance node with SRV rdata
             inst_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.SRV, create=True).add(
                 dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.SRV, '0 0 %s %s' % (inst_port, h)), ttl=ttl)
+
+            # fill instance node with TXT rdata
             if (zeroconf_results[key]['txt'] != ''):
                 inst_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.TXT, create=True).add(
                     dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.TXT, inst_txt_rdata_rev_fqdn), ttl=ttl)
 
-    # after iterating through all the results, delete empty nodes in zone
+    # delete empty nodes in zone after iterating through all the results
     for name, node in zone.nodes.items():
         if not node.rdatasets:
             zone.delete_node(name)
