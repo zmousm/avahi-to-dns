@@ -179,16 +179,15 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local'],
                     not svc_ in subtypes:
                 del results_all[key]
 
-    if sed_pattern is not None and sed_repl is not None:
-        for key in results_all.keys():
-            name_, svc_, dom_ = key
-            if sed_service != [None] and svc_ not in sed_service:
-                continue
-            # newname = re.sub(r'^(.+)( @ cups)', r'AirPrint: \g<1>', name_)
-            newname = re.sub(r'%s' % sed_pattern, r'%s' % sed_repl, name_)
-            if newname != name_:
-                results_all[(newname, svc_, dom_)] = results_all[key]
-                del results_all[key]
+    for key in results_all.keys():
+        name_, svc_, dom_ = key
+        displayname = name_
+        if sed_pattern is not None and sed_repl is not None:
+            if sed_service != [None] and svc_ in sed_service:
+                # newname = re.sub(r'^(.+)( @ cups)', r'AirPrint: \g<1>', name_)
+                displayname = re.sub(r'%s' % sed_pattern, r'%s' % sed_repl, name_)
+        results_all[(displayname, svc_, dom_, name_)] = results_all[key]
+        del results_all[key]
 
     return results_all #if len(results) > 0 else None
 
@@ -203,13 +202,77 @@ def zeroconf_to_json(zeroconf_results = {}):
 
     return json.dumps(ndict) if len(ndict) > 0 else None
 
+def mudns_query(qname, rdtype, qwhere='default resolver', qport=53,
+                qtimeout=2, qu=False, res=None):
+    import dns.name
+    import dns.resolver
+    import dns.query
+    from dns.exception import DNSException, Timeout
+    from dns.resolver import NoAnswer, NXDOMAIN
+    import dns.rdatatype
+    import dns.rdataclass
+
+    qubit = 32768
+    a = None
+
+    if qwhere is 'default resolver':
+        qwhere = dns.resolver.get_default_resolver().nameservers
+
+    if qu:
+        pass
+    elif isinstance(res, dns.resolver.Resolver):
+        instresolver = res
+    else:
+        instresolver = dns.resolver.Resolver()
+
+    if isinstance(qname, (str, unicode)):
+        qname = dns.name.from_text(qname, None)
+    if isinstance(rdtype, (str, unicode)):
+        rdtype = dns.rdatatype.from_text(rdtype)
+
+    # QU query (typically multicast)
+    if qu:
+        q = dns.message.make_query(qname, rdtype,
+                                   rdclass=dns.rdataclass.IN + qubit)
+        try:
+            m = dns.query.udp(q, qwhere, port=qport, timeout=qtimeout)
+        except (DNSException) as e:
+            # print "dns.query.udp %s : %s %s -> exception %s" % (qwhere,
+            #                                                     qname.to_text(),
+            #                                                     dns.rdatatype.to_text(rdtype),
+            #                                                     type(e))
+            pass
+        else:
+            if isinstance(m, dns.message.Message):
+                a = dns.resolver.Answer(qname, rdtype, dns.rdataclass.IN, m)
+    # direct unicast query
+    else:
+        instresolver.nameservers=[qwhere]
+        instresolver.port=qport
+        instresolver.lifetime=qtimeout
+        try:
+            a = dns.resolver.query(qname, rdtype,
+                                   rdclass=dns.rdataclass.IN)
+        except (DNSException, NoAnswer, NXDOMAIN) as e:
+            # print "dns.resolver.query %s : %s %s -> exception %s" % (
+            #     ' '.join(instresolver.nameservers),
+            #     qname.to_text(),
+            #     dns.rdatatype.to_text(rdtype),
+            #     type(e)
+            #     )
+            pass
+
+    return a
+
+
 def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
                      zeroconf_results = {}, locmap = {}, ttl=1800):
     import dns.name
     import dns.reversename
     import dns.resolver
     import dns.query
-    from dns.exception import DNSException
+    from dns.exception import DNSException, Timeout
+    from dns.resolver import NoAnswer, NXDOMAIN
     import dns.zone
     import dns.node
     import dns.rdataset
@@ -233,13 +296,15 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
     reverse_resolved = {}
 
     for key in zeroconf_results:
-        inst_name, inst_type, inst_domain = key
+        inst_name, inst_type, inst_domain, inst_name_orig = key
         inst_subtypes = zeroconf_results[key]['subtypes'] if 'subtypes' in zeroconf_results[key] \
             else []
 
         # create service type and subtype nodes (empty nodes deleted at the end)
         type_node = zone.find_node(dns.name.from_text(inst_type, origin=zone.origin), create=True)
-        subtype_nodes = [zone.find_node(dns.name.from_text(subtype + '._sub.' + inst_type, origin=zone.origin), create=True) for subtype in inst_subtypes]
+        subtype_nodes = [zone.find_node(dns.name.from_text(subtype + '._sub.' + inst_type,
+                                                           origin=zone.origin), create=True)
+                         for subtype in inst_subtypes]
 
         # <Instance> must be a single DNS label, any dots should be escaped before concatenating
         # all portions of a Service Instance Name, according to DNS-SD (RFC6763).
@@ -265,7 +330,6 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
             continue
 
         node_ptr_rdata = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.PTR, inst_fullname.to_text())
-
         # fill service type and subtype nodes with PTR rdata
         type_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.PTR, create=True).add(
             node_ptr_rdata, ttl=ttl)
@@ -276,15 +340,112 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
         # create instance node
         inst_node = zone.find_node(inst_fullname, create=True)
         
-        inst_port = zeroconf_results[key]['port']
+        # avahi-browse returns a single SRV and TXT record so we should
+        # try to resolve again
 
+        qname = dns.name.from_text("%s.%s" % (inst_name_orig, inst_type),
+                                  origin=dns.name.from_text(inst_domain))
+
+        instresolver = dns.resolver.Resolver()
+
+        mdns_addr = '224.0.0.251'
+
+        for l, rdt in (('srv', dns.rdatatype.SRV),
+                       ('txt', dns.rdatatype.TXT)):
+            if inst_domain == 'local':
+                # mDNS:
+                # * try a multicast query first:
+                #   - with unicast-response (QU) bit set
+                #   - legacy per RFC6762 sec. 6.7 as we wont set
+                #     source_port=5353
+                # * fallback to direct unicast query (RFC6762 sec. 5.5)
+                #   caveat:
+                #   unicast responses must be less than 512 bytes
+                #   or else we will not get an answer (no EDNS0)
+                a = mudns_query(qname, rdt, qwhere=mdns_addr, qport=5353,
+                                qtimeout=2, qu=True)
+                #print "mudns returned %s" % str(a)
+                if a is None:
+                    a = mudns_query(qname, rdt, qwhere=inst_addr,
+                                    qport=5353, qtimeout=2,
+                                    res=instresolver)
+            else:
+                a = mudns_query(qname, rdt, qtimeout=4)
+
+            if isinstance(a, dns.resolver.Answer):
+                zeroconf_results[key][l] = [rd.to_text() for rd in a[::]]
+            else:
+                if l == 'srv':
+                    zeroconf_results[key][l] = ['0 0 %s %s' % \
+                                                    (zeroconf_results[key]['port'],
+                                                     zeroconf_results[key]['hostname'])
+                                                ]
+                elif l == 'txt':
+                    zeroconf_results[key][l] = [zeroconf_results[key][l]]
+
+            #print ""
+        #continue
+
+        # replace hostname.local or whatever avahi returns with
+        # reverse-resolved fqdn
+        for h in zeroconf_results[key]['hostname_rev']:
+            zeroconf_results[key]['srv'] = [
+                re.sub(
+                    r'%s\.?' % zeroconf_results[key]['hostname'],
+                    r'%s' % h,
+                    r)
+                for r in zeroconf_results[key]['srv']
+                ]
+            zeroconf_results[key]['txt'] = [
+                re.sub(
+                    r'%s\.?' % zeroconf_results[key]['hostname'],
+                    r'%s' % h.rstrip('.'),
+                    r)
+                for r in zeroconf_results[key]['txt']
+                ]
+
+        # txt record mangling
+        for (i, txt_rec) in enumerate(zeroconf_results[key]['txt']):
+            # reverse the order of fields
+            txt_rec_rev = re.split('(?<=")\s+(?=")', txt_rec)[::-1]
+
+            # note field mangling
+            if inst_name in locmap.keys():
+                idx = False
+                for (k, txt_field) in enumerate(txt_rec_rev):
+                    if txt_field.find('"note=') == 0:
+                        idx = i
+                        break
+                txt_field_note = '"note=%s"' % locmap[inst_name]
+                if idx:
+                    txt_rec_rev[k] = txt_field_note
+                else:
+                    txt_rec_rev.append(txt_field_note)
+
+            # produce the final (flat) txt record
+            zeroconf_results[key]['txt'][i] = ' '.join(txt_rec_rev)
+
+        # fill instance node with SRV and TXT rdata
+        for rec_type in ('srv', 'txt'):
+            for r in zeroconf_results[key][rec_type]:
+                inst_node.find_rdataset(dns.rdataclass.IN,
+                                        dns.rdatatype.from_text(rec_type),
+                                        create=True).add(
+                    dns.rdata.from_text(dns.rdataclass.IN,
+                                        dns.rdatatype.from_text(rec_type), r))
+
+
+        '''
         inst_txt_rdata_rev = re.split('(?<=")\s+(?=")', zeroconf_results[key]['txt'])[::-1]
+
+        # for ck in inst_txt_rdata_rev:
+        #     print "%s : %s" % (len(ck), ck)
 
         # note txt field mangling
         if inst_name in locmap.keys():
             idx = False
             for (i, txt) in enumerate(inst_txt_rdata_rev):
-                if txt.find('"note="') == 0:
+                if txt.find('"note=') == 0:
                     idx = i
                     break
             if idx:
@@ -305,7 +466,7 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
             if (zeroconf_results[key]['txt'] != ''):
                 inst_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.TXT, create=True).add(
                     dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.TXT, inst_txt_rdata_rev_fqdn), ttl=ttl)
-
+        '''
     # delete empty nodes in zone after iterating through all the results
     for name, node in zone.nodes.items():
         if not node.rdatasets:
@@ -331,7 +492,9 @@ try:
         sys.exit()
 
     if options.output_format == "dns":
-        zone = zeroconf_to_zone(target_zone=options.target_zone, target_ns=options.zone_xfr_from, zeroconf_results=results,
+        zone = zeroconf_to_zone(target_zone=options.target_zone,
+                                target_ns=options.zone_xfr_from,
+                                zeroconf_results=results,
                                 locmap=eval(options.location_map), ttl=options.ttl)
     elif options.output_format == "json":
         zone = zeroconf_to_json(zeroconf_results=results)
