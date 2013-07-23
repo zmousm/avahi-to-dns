@@ -376,12 +376,17 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
                 zeroconf_results[key][l] = [rd.to_text() for rd in a[::]]
             else:
                 if l == 'srv':
-                    zeroconf_results[key][l] = ['0 0 %s %s' % \
-                                                    (zeroconf_results[key]['port'],
-                                                     zeroconf_results[key]['hostname'])
-                                                ]
+                    zeroconf_results[key][l] = [
+                        '0 0 %s %s' % \
+                            (zeroconf_results[key]['port'],
+                             zeroconf_results[key]['hostname'])
+                        ]
                 elif l == 'txt':
-                    zeroconf_results[key][l] = [zeroconf_results[key][l]]
+                    # reverse the order of fields as returned by avahi
+                    txt_rec_rev = re.split('(?<=")\s+(?=")',
+                                           zeroconf_results[key][l]
+                                           )[::-1]
+                    zeroconf_results[key][l] = [' '.join(txt_rec_rev)]
 
             #print ""
         #continue
@@ -406,24 +411,23 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
 
         # txt record mangling
         for (i, txt_rec) in enumerate(zeroconf_results[key]['txt']):
-            # reverse the order of fields
-            txt_rec_rev = re.split('(?<=")\s+(?=")', txt_rec)[::-1]
+            txt_rec = re.split('(?<=")\s+(?=")', txt_rec)[::]
 
             # note field mangling
             if inst_name in locmap.keys():
                 idx = False
-                for (k, txt_field) in enumerate(txt_rec_rev):
+                for (k, txt_field) in enumerate(txt_rec):
                     if txt_field.find('"note=') == 0:
                         idx = i
                         break
                 txt_field_note = '"note=%s"' % locmap[inst_name]
                 if idx:
-                    txt_rec_rev[k] = txt_field_note
+                    txt_rec[k] = txt_field_note
                 else:
-                    txt_rec_rev.append(txt_field_note)
+                    txt_rec.append(txt_field_note)
 
             # produce the final (flat) txt record
-            zeroconf_results[key]['txt'][i] = ' '.join(txt_rec_rev)
+            zeroconf_results[key]['txt'][i] = ' '.join(txt_rec)
 
         # fill instance node with SRV and TXT rdata
         for rec_type in ('srv', 'txt'):
@@ -432,7 +436,9 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
                                         dns.rdatatype.from_text(rec_type),
                                         create=True).add(
                     dns.rdata.from_text(dns.rdataclass.IN,
-                                        dns.rdatatype.from_text(rec_type), r))
+                                        dns.rdatatype.from_text(rec_type),
+                                        r),
+                    ttl=ttl)
 
 
         '''
