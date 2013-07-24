@@ -116,6 +116,9 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local'],
     import zeroconf
 
     default_subtypes = {'_ipp._tcp' : ['_universal._sub._ipp._tcp'],
+                                        '_cups._sub._ipp._tcp'],
+                        '_ipps._tcp': ['_universal._sub._ipps._tcp',
+                                        '_cups._sub._ipps._tcp',
                         '_http._tcp': ['_printer._sub._http._tcp']
                         }
 
@@ -159,11 +162,11 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local'],
         for subtype in subtypes:
             for (key, val) in zeroconf.search(name=name, type=subtype,
                                               domain=domain).items():
+                subtype = re.sub(r'._sub.%s' % key[1], '', subtype)
                 # record in results for master type, add subtype
                 if key in results and \
                         {k: results[key][k] for k in results[key]
                          if k != 'subtypes'} == val:
-                        subtype = subtype.rstrip('._sub.' + key[1])
                         if 'subtypes' in results[key]:
                             results[key]['subtypes'].append(subtype)
                         else:
