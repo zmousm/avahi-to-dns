@@ -5,21 +5,27 @@ import sys
 import os
 import re
 
+
 def prepare_options(cgi_mode):
     from optparse import OptionParser, OptionValueError, OptionGroup
-    parser = OptionParser (usage="""Usage: %prog [ -z <target-zone> -x <zone-xfr-from> -t <ttl> --output-rrset
--d <domain> -s <service> -n <instance-name> --instname-sed PATTERN REPL]""",
-                           description="DNS-SD browser that converts avahi-browse output to a DNS zone/rrset",
-                           epilog=None)
+    parser = OptionParser(usage="""Usage: %prog [ -z <target-zone>
+-x <zone-xfr-from> -t <ttl> --output-rrset -d <domain> -s <service>
+-n <instance-name> --instname-sed PATTERN REPL]""",
+                          description="""DNS-SD browser that converts
+avahi-browse output to a DNS zone/rrset""",
+                          epilog=None)
     parser.add_option('-z', '--target-zone', default='example.com',
                       help='Target zone')
     parser.add_option('-x', '--zone-xfr-from', default='localhost',
                       help='DNS server to transfer target zone from')
     parser.add_option('-t', '--ttl', type="int", default=1800,
-                      help='TTL for created DNS resource records (default: %default)')
+                      help="""TTL for created DNS resource records (default:
+%default)""")
     parser.add_option('--output-rrset', action="store_true", default=False,
-                      help='Return only created DNS resource records rather than a full zone (default: %default)')
-    parser.add_option('-f', '--output-format', default='dns', choices=['dns', 'json'],
+                      help="""Return only created DNS resource records rather
+than a full zone (default: %default)""")
+    parser.add_option('-f', '--output-format', default='dns',
+                      choices=['dns', 'json'],
                       help='Output format: dns, json (default: %default)')
     parser.add_option('-d', '--domain', action="append", default=['local'],
                       help="""DNS-SD domain (default: local).
@@ -35,11 +41,13 @@ enumerates the master type as well.""")
     parser.add_option('--instname-sed', nargs=2, default=None,
                       help="""The pattern and replacement string to use for
 regex replace on each instance name.""")
-    parser.add_option('--instname-sed-service', action="append", default=[None],
-                      help="""Regex replace on instance names should be applied only to
-instances of these services. This option should be used once for each service.""")
+    parser.add_option('--instname-sed-service', action="append",
+                      default=[None], help="""Regex replace on instance names
+should be applied only to instances of these services. This option should be
+used once for each service.""")
     parser.add_option('--location-map', default='{}',
-                      help="""A dictionary mapping instance names to locations""")
+                      help="""A dictionary mapping instance names to
+locations""")
 
     if cgi_mode:
         import cgi
@@ -49,25 +57,27 @@ instances of these services. This option should be used once for each service.""
         form = cgi.FieldStorage()
         options = []
         if form.getfirst('target_zone'):
-            options.extend([ '--target-zone', form.getfirst('target_zone') ])
+            options.extend(['--target-zone', form.getfirst('target_zone')])
         if form.getfirst('zone_xfr_from'):
-            options.extend([ '--zone-xfr-from', form.getfirst('zone_xfr_from') ])
+            options.extend(['--zone-xfr-from', form.getfirst('zone_xfr_from')])
         if form.getfirst('ttl'):
-            options.extend([ '--ttl', form.getfirst('ttl') ])
+            options.extend(['--ttl', form.getfirst('ttl')])
         if form.getfirst('output_rrset'):
             options.append('--output-rrset')
         if form.getfirst('output_format'):
-            options.extend([ '--output-format', form.getfirst('output_format') ])
+            options.extend(['--output-format', form.getfirst('output_format')])
         [options.extend(['--domain', dom]) for dom in form.getlist('domain')]
         [options.extend(['--service', svc]) for svc in form.getlist('service')]
-        options.extend([ '--instance-name', form.getfirst('instance_name')])
-        if form.getfirst('instname_pattern') and form.getfirst('instname_repl'):
-            options.extend([ '--instname-sed',
+        options.extend(['--instance-name', form.getfirst('instance_name')])
+        if form.getfirst('instname_pattern') and \
+                form.getfirst('instname_repl'):
+            options.extend(['--instname-sed',
                              form.getfirst('instname_pattern'),
-                             form.getfirst('instname_repl') ])
-        [options.extend(['--instname-sed-service', svc]) for svc in form.getlist('instname_sed_service')]
+                             form.getfirst('instname_repl')])
+        [options.extend(['--instname-sed-service', svc]) for svc in
+         form.getlist('instname_sed_service')]
         if form.getfirst('location_map'):
-            options.extend([ '--location-map', form.getfirst('location_map') ])
+            options.extend(['--location-map', form.getfirst('location_map')])
         (options, args) = parser.parse_args(options)
         # get rid of defaults because action=append doesnt
         if form.getlist('domain'):
@@ -79,48 +89,38 @@ instances of these services. This option should be used once for each service.""
     else:
         (options, args) = parser.parse_args(sys.argv[1:])
         # get rid of defaults because action=append doesnt
-        if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str in str(parser.get_option('--domain')).split('/')]:
+        if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str
+                    in str(parser.get_option('--domain')).
+                    split('/')]:
             del options.domain[0]
-        if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str in str(parser.get_option('--service')).split('/')]:
+        if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str
+                    in str(parser.get_option('--service')).
+                    split('/')]:
             del options.service[0]
-        if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str in str(parser.get_option('--instname-sed-service')).split('/')]:
+        if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str
+                    in str(parser.get_option('--instname-sed-service')).
+                    split('/')]:
             del options.instname_sed_service[0]
         # for opt in ['service', 'domain']:
         #     opt = parser.get_option('--%s' % opt)
-        #     if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:] for opt_str in str(opt).split('/')]:
+        #     if True in [arg.find(opt_str) == 0 for arg in sys.argv[1:]
+        #                 for opt_str in str(opt).split('/')]:
         #         del getattr(options, opt.dest)[0]
 
     #print options
     return options
 
+
 def zeroconf_search_multi(name=None, types=[None], domains=['local'],
                           sed_pattern=None, sed_repl=None, sed_service=[None]):
     import zeroconf
 
-    default_subtypes = { '_ipp._tcp'  : [ '_universal._sub._ipp._tcp' ],
-                         '_http._tcp' : [  '_printer._sub._http._tcp' ]  }
+    default_subtypes = {'_ipp._tcp' : ['_universal._sub._ipp._tcp'],
+                        '_http._tcp': ['_printer._sub._http._tcp']
+                        }
 
     types = set(types)
     domains = set(domains)
-
-    # name = 'name'
-    # types = 'types'
-    # domains = 'domains'
-
-    # name = kwargs[name] if name in kwargs else None
-    # if types in kwargs:
-    #     types = list(set(kwargs[types])) if not isinstance(kwargs[types], basestring) else [kwargs[types]]
-    # else:
-    #     types = None
-    # if domains in kwargs:
-    #     domains = list(set(kwargs[domains])) if not isinstance(kwargs[domains], basestring) else [kwargs[domains]]
-    # else:
-    #     domains = 'local'
-
-    # name = kwargs['name'] if 'name' in kwargs else None
-    # types = list(set(kwargs['types'])) if 'types' in kwargs else [None]
-    # domains = list(set(kwargs['domains'])) if 'domains' in kwargs else ['local']
-
 
     # special handling for subtypes: they are not queried through _services
     # enumeration and we can not tell them apart in responses from the
@@ -150,24 +150,27 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local'],
         results = zeroconf.search(name=name, type=stype, domain=domain)
 
         subtypes = subtypes_all
-        # add default subtypes to subtypes to be enumerated if the master is found in results
+        # add default subtypes to subtypes to be enumerated if the master is
+        # found in results
         for subt_key in default_subtypes:
             if subt_key in [res_key[1] for res_key in results.keys()]:
                 subtypes.update(default_subtypes[subt_key])
         # enumerate for each subtype individually
         for subtype in subtypes:
-            for (key, val) in zeroconf.search(name=name, type=subtype, domain=domain).items():
+            for (key, val) in zeroconf.search(name=name, type=subtype,
+                                              domain=domain).items():
                 # record in results for master type, add subtype
                 if key in results and \
-                        { k : results[key][k] for k in results[key] if k != 'subtypes' } == val:
-                    subtype = subtype.rstrip('._sub.' + key[1])
-                    if 'subtypes' in results[key]:
-                        results[key]['subtypes'].append(subtype)
-                    else:
-                        results[key]['subtypes'] = [subtype]
+                        {k: results[key][k] for k in results[key]
+                         if k != 'subtypes'} == val:
+                        subtype = subtype.rstrip('._sub.' + key[1])
+                        if 'subtypes' in results[key]:
+                            results[key]['subtypes'].append(subtype)
+                        else:
+                            results[key]['subtypes'] = [subtype]
                 # no record in results for master type, add record and subtype
                 else:
-                    results.update({ key : val })
+                    results.update({key: val})
                     results[key]['subtypes'] = [subtype]
 
         results_all.update(results)
@@ -184,14 +187,17 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local'],
         displayname = name_
         if sed_pattern is not None and sed_repl is not None:
             if sed_service != [None] and svc_ in sed_service:
-                # newname = re.sub(r'^(.+)( @ cups)', r'AirPrint: \g<1>', name_)
-                displayname = re.sub(r'%s' % sed_pattern, r'%s' % sed_repl, name_)
+                # newname = re.sub(r'^(.+)( @ cups)', r'AirPrint: \g<1>',
+                #                  name_)
+                displayname = re.sub(r'%s' % sed_pattern, r'%s' % sed_repl,
+                                     name_)
         results_all[(displayname, svc_, dom_, name_)] = results_all[key]
         del results_all[key]
 
-    return results_all #if len(results) > 0 else None
+    return results_all  # if len(results) > 0 else None
 
-def zeroconf_to_json(zeroconf_results = {}):
+
+def zeroconf_to_json(zeroconf_results={}):
     import json
 
     ndict = dict()
@@ -201,6 +207,7 @@ def zeroconf_to_json(zeroconf_results = {}):
         ndict[nkey] = val
 
     return json.dumps(ndict) if len(ndict) > 0 else None
+
 
 def mudns_query(qname, rdtype, qwhere='default resolver', qport=53,
                 qtimeout=2, qu=False, res=None):
@@ -231,25 +238,28 @@ def mudns_query(qname, rdtype, qwhere='default resolver', qport=53,
         rdtype = dns.rdatatype.from_text(rdtype)
 
     # QU query (typically multicast)
+    # cant use dns.resolver since the question and answer will have a
+    # different class failing validation
     if qu:
         q = dns.message.make_query(qname, rdtype,
                                    rdclass=dns.rdataclass.IN + qubit)
         try:
             m = dns.query.udp(q, qwhere, port=qport, timeout=qtimeout)
         except (DNSException) as e:
-            # print "dns.query.udp %s : %s %s -> exception %s" % (qwhere,
-            #                                                     qname.to_text(),
-            #                                                     dns.rdatatype.to_text(rdtype),
-            #                                                     type(e))
+            # print "dns.query.udp %s : %s %s -> " + \
+            #     "exception %s" % (qwhere,
+            #                       qname.to_text(),
+            #                       dns.rdatatype.to_text(rdtype),
+            #                       type(e))
             pass
         else:
             if isinstance(m, dns.message.Message):
                 a = dns.resolver.Answer(qname, rdtype, dns.rdataclass.IN, m)
     # direct unicast query
     else:
-        instresolver.nameservers=[qwhere]
-        instresolver.port=qport
-        instresolver.lifetime=qtimeout
+        instresolver.nameservers = [qwhere]
+        instresolver.port = qport
+        instresolver.lifetime = qtimeout
         try:
             a = dns.resolver.query(qname, rdtype,
                                    rdclass=dns.rdataclass.IN)
@@ -266,7 +276,7 @@ def mudns_query(qname, rdtype, qwhere='default resolver', qport=53,
 
 
 def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
-                     zeroconf_results = {}, locmap = {}, ttl=1800):
+                     zeroconf_results={}, locmap={}, ttl=1800):
     import dns.name
     import dns.reversename
     import dns.resolver
@@ -285,33 +295,43 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
         raise TypeError
 
     if target_zone == 'example.com':
-        zone = """@ 86400 IN SOA {ns}. administrator.example.com. 1970000000 28800 7200 604800 1800
+        zone = """@ 86400 IN SOA {ns}. administrator.example.com. 1970000000 \
+28800 7200 604800 1800
 @ 86400 IN NS {ns}.""".format(ns=target_ns)
     else:
         zone = dns.zone.from_xfr(dns.query.xfr(target_ns, target_zone))
         zone = zone.get('@').to_text(zone.origin)
     zone = dns.zone.from_text(zone, origin=target_zone)
-    # ttl = ttl if not ttl == None else zone.get_rdataset('@', dns.rdatatype.SOA).ttl
+    # ttl = ttl if not ttl == None else \
+    #     zone.get_rdataset('@', dns.rdatatype.SOA).ttl
 
     reverse_resolved = {}
 
     for key in zeroconf_results:
         inst_name, inst_type, inst_domain, inst_name_orig = key
-        inst_subtypes = zeroconf_results[key]['subtypes'] if 'subtypes' in zeroconf_results[key] \
-            else []
+        inst_subtypes = zeroconf_results[key]['subtypes'] \
+            if 'subtypes' in zeroconf_results[key] else []
 
-        # create service type and subtype nodes (empty nodes deleted at the end)
-        type_node = zone.find_node(dns.name.from_text(inst_type, origin=zone.origin), create=True)
-        subtype_nodes = [zone.find_node(dns.name.from_text(subtype + '._sub.' + inst_type,
-                                                           origin=zone.origin), create=True)
+        # create service type and subtype nodes (empty nodes deleted at the
+        # end)
+        type_node = zone.find_node(dns.name.from_text(inst_type,
+                                                      origin=zone.origin),
+                                   create=True)
+        subtype_nodes = [zone.find_node(dns.name.from_text(subtype + '._sub.'
+                                                           + inst_type,
+                                                           origin=zone.origin),
+                                        create=True)
                          for subtype in inst_subtypes]
 
-        # <Instance> must be a single DNS label, any dots should be escaped before concatenating
-        # all portions of a Service Instance Name, according to DNS-SD (RFC6763).
-        # A workaround is necessary for buggy software that does not adhere to the rules:
+        # <Instance> must be a single DNS label, any dots should be escaped
+        # before concatenating all portions of a Service Instance Name,
+        # according to DNS-SD (RFC6763).
+        # A workaround is necessary for buggy software that does not adhere to
+        # the rules:
         inst_name = re.sub(r'(?<!\\)\.', r'\.', inst_name)
 
-        inst_fullname = dns.name.from_text("%s.%s" % (inst_name, inst_type), origin=zone.origin)
+        inst_fullname = dns.name.from_text("%s.%s" % (inst_name, inst_type),
+                                           origin=zone.origin)
 
         inst_addr = zeroconf_results[key]['address']
         if inst_addr not in reverse_resolved:
@@ -322,24 +342,31 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
             except DNSException, e:
                 reverse_resolved[inst_addr] = None
                 continue
-        #inst_hostname_rev_rr = dns.resolver.query(dns.reversename.from_address(inst_addr), dns.rdatatype.PTR)
-        inst_hostname_rev_rr = reverse_resolved[inst_addr] if reverse_resolved[inst_addr] is not None else []
-        zeroconf_results[key]['hostname_rev'] = [i.to_text(relativize=False) for i in inst_hostname_rev_rr]
+        # inst_hostname_rev_rr = dns.resolver.query(dns.reversename.
+        #                                           from_address(inst_addr),
+        #                                           dns.rdatatype.PTR)
+        inst_hostname_rev_rr = reverse_resolved[inst_addr] \
+            if reverse_resolved[inst_addr] is not None else []
+        zeroconf_results[key]['hostname_rev'] = [i.to_text(relativize=False)
+                                                 for i in inst_hostname_rev_rr]
 
         if not zeroconf_results[key]['hostname_rev']:
             continue
 
-        node_ptr_rdata = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.PTR, inst_fullname.to_text())
+        node_ptr_rdata = dns.rdata.from_text(dns.rdataclass.IN,
+                                             dns.rdatatype.PTR,
+                                             inst_fullname.to_text())
         # fill service type and subtype nodes with PTR rdata
-        type_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.PTR, create=True).add(
-            node_ptr_rdata, ttl=ttl)
+        type_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.PTR,
+                                create=True).add(node_ptr_rdata, ttl=ttl)
         for subtype_node in subtype_nodes:
-            subtype_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.PTR, create=True).add(
-                node_ptr_rdata, ttl=ttl)
+            subtype_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.PTR,
+                                       create=True).add(node_ptr_rdata,
+                                                        ttl=ttl)
 
         # create instance node
         inst_node = zone.find_node(inst_fullname, create=True)
-        
+
         # avahi-browse returns a single SRV and TXT record so we should
         # try to resolve again
 
@@ -377,9 +404,9 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
             else:
                 if l == 'srv':
                     zeroconf_results[key][l] = [
-                        '0 0 %s %s' % \
-                            (zeroconf_results[key]['port'],
-                             zeroconf_results[key]['hostname'])
+                        '0 0 %s %s' %
+                        (zeroconf_results[key]['port'],
+                         zeroconf_results[key]['hostname'])
                         ]
                 elif l == 'txt':
                     # reverse the order of fields as returned by avahi
@@ -440,39 +467,6 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
                                         r),
                     ttl=ttl)
 
-
-        '''
-        inst_txt_rdata_rev = re.split('(?<=")\s+(?=")', zeroconf_results[key]['txt'])[::-1]
-
-        # for ck in inst_txt_rdata_rev:
-        #     print "%s : %s" % (len(ck), ck)
-
-        # note txt field mangling
-        if inst_name in locmap.keys():
-            idx = False
-            for (i, txt) in enumerate(inst_txt_rdata_rev):
-                if txt.find('"note=') == 0:
-                    idx = i
-                    break
-            if idx:
-                inst_txt_rdata_rev[idx] = '"note=%s"' % locmap[inst_name]
-            else:
-                inst_txt_rdata_rev.append('"note=%s"' % locmap[inst_name])
-
-        for h in zeroconf_results[key]['hostname_rev']:
-            # replace hostname.local or whatever avahi returns with reverse-resolved fqdn
-            inst_txt_rdata_rev_fqdn = [ re.sub(r'%s\.?' % zeroconf_results[key]['hostname'], r'%s' % h.rstrip('.'), kvp) for kvp in inst_txt_rdata_rev ]
-            inst_txt_rdata_rev_fqdn = ' '.join(inst_txt_rdata_rev_fqdn)
-
-            # fill instance node with SRV rdata
-            inst_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.SRV, create=True).add(
-                dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.SRV, '0 0 %s %s' % (inst_port, h)), ttl=ttl)
-
-            # fill instance node with TXT rdata
-            if (zeroconf_results[key]['txt'] != ''):
-                inst_node.find_rdataset(dns.rdataclass.IN, dns.rdatatype.TXT, create=True).add(
-                    dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.TXT, inst_txt_rdata_rev_fqdn), ttl=ttl)
-        '''
     # delete empty nodes in zone after iterating through all the results
     for name, node in zone.nodes.items():
         if not node.rdatasets:
@@ -481,17 +475,19 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
 
 
 try:
-    cgi_mode = True if 'GATEWAY_INTERFACE' in os.environ and os.environ['GATEWAY_INTERFACE'].find('CGI') == 0 else False
+    cgi_mode = True if 'GATEWAY_INTERFACE' in os.environ and \
+        os.environ['GATEWAY_INTERFACE'].find('CGI') == 0 else False
 
     options = prepare_options(cgi_mode)
 
-    sed_pattern, sed_repl = options.instname_sed if options.instname_sed is not None else (None, None)
+    sed_pattern, sed_repl = options.instname_sed \
+        if options.instname_sed is not None else (None, None)
 
-    results = zeroconf_search_multi(types = options.service,
-                                    domains = options.domain,
-                                    name = options.instance_name,
-                                    sed_pattern = sed_pattern,
-                                    sed_repl = sed_repl,
+    results = zeroconf_search_multi(types=options.service,
+                                    domains=options.domain,
+                                    name=options.instance_name,
+                                    sed_pattern=sed_pattern,
+                                    sed_repl=sed_repl,
                                     sed_service=options.instname_sed_service)
 
     if not results:
@@ -501,7 +497,8 @@ try:
         zone = zeroconf_to_zone(target_zone=options.target_zone,
                                 target_ns=options.zone_xfr_from,
                                 zeroconf_results=results,
-                                locmap=eval(options.location_map), ttl=options.ttl)
+                                locmap=eval(options.location_map),
+                                ttl=options.ttl)
     elif options.output_format == "json":
         zone = zeroconf_to_json(zeroconf_results=results)
 
@@ -509,7 +506,7 @@ try:
         sys.exit()
 
     if cgi_mode:
-        print 'Content-Type: text/{format}'.format(format=options.output_format)
+        print 'Content-Type: text/{format}' % options.output_format
         print
 
     if options.output_format == "dns":
