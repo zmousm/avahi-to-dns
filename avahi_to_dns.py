@@ -115,10 +115,10 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local'],
                           sed_pattern=None, sed_repl=None, sed_service=[None]):
     import zeroconf
 
-    default_subtypes = {'_ipp._tcp' : ['_universal._sub._ipp._tcp'],
+    default_subtypes = {'_ipp._tcp' : ['_universal._sub._ipp._tcp',
                                         '_cups._sub._ipp._tcp'],
                         '_ipps._tcp': ['_universal._sub._ipps._tcp',
-                                        '_cups._sub._ipps._tcp',
+                                        '_cups._sub._ipps._tcp'],
                         '_http._tcp': ['_printer._sub._http._tcp']
                         }
 
