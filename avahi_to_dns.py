@@ -285,7 +285,7 @@ def mudns_query(qname, rdtype, qwhere='default resolver', qport=53,
     return a
 
 
-def txt_field_mangle(txt, fieldname, value=None):
+def txt_field_mangle(txt, fieldname, newval=False):
             txt_fields = re.split('(?<=")\s+(?=")', txt)[::]
 
             idx = False
@@ -294,19 +294,24 @@ def txt_field_mangle(txt, fieldname, value=None):
                     idx = k
                     break
 
-            if value is None:
+            if newval is False:
+                curval = None
                 if idx is not False:
-                    val = re.search(r'^"%s=([^"]*)"$' % fieldname,
+                    curval = re.search(r'^"%s=([^"]*)"$' % fieldname,
                                     txt_fields[idx])
-                    if val is not None:
-                        value = val.group(1)
-                return value
+                    if curval is not None:
+                        curval = curval.group(1)
+                return curval
 
-            txt_field_new = '"%s=%s"' % (fieldname, value)
-            if idx is not False:
-                txt_fields[idx] = txt_field_new
+            if newval is None:
+                if idx is not False:
+                    del txt_fields[idx]
             else:
-                txt_fields.append(txt_field_new)
+                txt_field_new = '"%s=%s"' % (fieldname, newval)
+                if idx is not False:
+                    txt_fields[idx] = txt_field_new
+                else:
+                    txt_fields.append(txt_field_new)
 
             return ' '.join(txt_fields)
 
@@ -476,7 +481,11 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
 
         # txt record mangling
         for (i, txt_rec) in enumerate(zeroconf_results[key]['txt']):
-            # mangling specified by Bonjour Printing options
+            # Bonjour Printing mangling
+            # discard ephemeral fields: printer-state
+            txt_rec = txt_field_mangle(txt_rec, 'printer-state', None)
+            zeroconf_results[key]['txt'][i] = txt_rec
+
             # note field mangling
             if inst_name in locmap:
                 txt_rec = txt_field_mangle(txt_rec, 'note', locmap[inst_name])
