@@ -493,7 +493,9 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
                     if prio == 0:
                         continue
                 else:
-                    prio = 0
+                    # bonjour printing spec v1.2 sec. 9.2.5
+                    # if not specified, priority defaults to 50
+                    prio = 50
                 # keep the modulo 10 part of original priority
                 prio = prio % 10
                 txt_rec = txt_field_mangle(txt_rec, 'priority', newprio + prio)
