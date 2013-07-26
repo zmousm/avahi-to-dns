@@ -48,6 +48,9 @@ used once for each service.""")
     parser.add_option('--location-map', default='{}',
                       help="""A dictionary mapping instance names to
 locations""")
+    parser.add_option('--priority-map', default='{}',
+                      help="""A dictionary mapping instance types or tuples of
+instance names, types to priorities""")
 
     if cgi_mode:
         import cgi
@@ -78,6 +81,8 @@ locations""")
          form.getlist('instname_sed_service')]
         if form.getfirst('location_map'):
             options.extend(['--location-map', form.getfirst('location_map')])
+        if form.getfirst('priority_map'):
+            options.extend(['--priority-map', form.getfirst('priority_map')])
         (options, args) = parser.parse_args(options)
         # get rid of defaults because action=append doesnt
         if form.getlist('domain'):
@@ -115,7 +120,7 @@ def zeroconf_search_multi(name=None, types=[None], domains=['local'],
                           sed_pattern=None, sed_repl=None, sed_service=[None]):
     import zeroconf
 
-    default_subtypes = {'_ipp._tcp' : ['_universal._sub._ipp._tcp',
+    default_subtypes = {'_ipp._tcp':  ['_universal._sub._ipp._tcp',
                                         '_cups._sub._ipp._tcp'],
                         '_ipps._tcp': ['_universal._sub._ipps._tcp',
                                         '_cups._sub._ipps._tcp'],
@@ -278,8 +283,34 @@ def mudns_query(qname, rdtype, qwhere='default resolver', qport=53,
     return a
 
 
+def txt_field_mangle(txt, fieldname, value=None):
+            txt_fields = re.split('(?<=")\s+(?=")', txt)[::]
+
+            idx = False
+            for (k, txt_field) in enumerate(txt_fields):
+                if txt_field.find('"%s=' % fieldname) == 0:
+                    idx = k
+                    break
+
+            if value is None:
+                if idx is not False:
+                    val = re.search(r'^"%s=([^"]*)"$' % fieldname,
+                                    txt_fields[idx])
+                    if val is not None:
+                        value = val.group(1)
+                return value
+
+            txt_field_new = '"%s=%s"' % (fieldname, value)
+            if idx is not False:
+                txt_fields[idx] = txt_field_new
+            else:
+                txt_fields.append(txt_field_new)
+
+            return ' '.join(txt_fields)
+
+
 def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
-                     zeroconf_results={}, locmap={}, ttl=1800):
+                     zeroconf_results={}, locmap={}, priomap={}, ttl=1800):
     import dns.name
     import dns.reversename
     import dns.resolver
@@ -295,6 +326,8 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
     import dns.rdataclass
 
     if not isinstance(locmap, dict):
+        raise TypeError
+    if not isinstance(priomap, dict):
         raise TypeError
 
     if target_zone == 'example.com':
@@ -441,23 +474,30 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
 
         # txt record mangling
         for (i, txt_rec) in enumerate(zeroconf_results[key]['txt']):
-            txt_rec = re.split('(?<=")\s+(?=")', txt_rec)[::]
-
             # note field mangling
-            if inst_name in locmap.keys():
-                idx = False
-                for (k, txt_field) in enumerate(txt_rec):
-                    if txt_field.find('"note=') == 0:
-                        idx = i
-                        break
-                txt_field_note = '"note=%s"' % locmap[inst_name]
-                if idx:
-                    txt_rec[k] = txt_field_note
-                else:
-                    txt_rec.append(txt_field_note)
+            if inst_name in locmap:
+                txt_rec = txt_field_mangle(txt_rec, 'note', locmap[inst_name])
+                zeroconf_results[key]['txt'][i] = txt_rec
 
-            # produce the final (flat) txt record
-            zeroconf_results[key]['txt'][i] = ' '.join(txt_rec)
+            # priority field mangling
+            if (inst_name, inst_type) in priomap:
+                newprio = priomap[(inst_name, inst_type)]
+            elif inst_type in priomap:
+                newprio = priomap[inst_type]
+            else:
+                newprio = None
+            if newprio is not None:
+                prio = txt_field_mangle(txt_rec, 'priority')
+                if prio is not None:
+                    prio = int(prio)
+                    if prio == 0:
+                        continue
+                else:
+                    prio = 0
+                # keep the modulo 10 part of original priority
+                prio = prio % 10
+                txt_rec = txt_field_mangle(txt_rec, 'priority', newprio + prio)
+                zeroconf_results[key]['txt'][i] = txt_rec
 
         # fill instance node with SRV and TXT rdata
         for rec_type in ('srv', 'txt'):
@@ -501,6 +541,7 @@ try:
                                 target_ns=options.zone_xfr_from,
                                 zeroconf_results=results,
                                 locmap=eval(options.location_map),
+                                priomap=eval(options.priority_map),
                                 ttl=options.ttl)
     elif options.output_format == "json":
         zone = zeroconf_to_json(zeroconf_results=results)
