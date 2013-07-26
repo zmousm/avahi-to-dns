@@ -45,12 +45,14 @@ regex replace on each instance name.""")
                       default=[None], help="""Regex replace on instance names
 should be applied only to instances of these services. This option should be
 used once for each service.""")
-    parser.add_option('--location-map', default='{}',
+    printgroup = OptionGroup(parser, "Options specific to Bonjour Printing")
+    printgroup.add_option('--location-map', default='{}',
                       help="""A dictionary mapping instance names to
 locations""")
-    parser.add_option('--priority-map', default='{}',
+    printgroup.add_option('--priority-map', default='{}',
                       help="""A dictionary mapping instance names, types or
 tuples of both to priorities""")
+    parser.add_option_group(printgroup)
 
     if cgi_mode:
         import cgi
@@ -474,6 +476,7 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
 
         # txt record mangling
         for (i, txt_rec) in enumerate(zeroconf_results[key]['txt']):
+            # mangling specified by Bonjour Printing options
             # note field mangling
             if inst_name in locmap:
                 txt_rec = txt_field_mangle(txt_rec, 'note', locmap[inst_name])
@@ -495,7 +498,7 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
                     if prio == 0:
                         continue
                 else:
-                    # bonjour printing spec v1.2 sec. 9.2.5
+                    # Bonjour Printing spec v1.2 sec. 9.2.5
                     # if not specified, priority defaults to 50
                     prio = 50
                 # keep the modulo 10 part of original priority
