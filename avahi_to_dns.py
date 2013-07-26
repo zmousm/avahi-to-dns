@@ -49,8 +49,8 @@ used once for each service.""")
                       help="""A dictionary mapping instance names to
 locations""")
     parser.add_option('--priority-map', default='{}',
-                      help="""A dictionary mapping instance types or tuples of
-instance names, types to priorities""")
+                      help="""A dictionary mapping instance names, types or
+tuples of both to priorities""")
 
     if cgi_mode:
         import cgi
@@ -482,6 +482,8 @@ def zeroconf_to_zone(target_zone='example.com', target_ns='localhost',
             # priority field mangling
             if (inst_name, inst_type) in priomap:
                 newprio = priomap[(inst_name, inst_type)]
+            elif inst_name in priomap:
+                newprio = priomap[inst_name]
             elif inst_type in priomap:
                 newprio = priomap[inst_type]
             else:
